@@ -1,0 +1,31 @@
+// client connects
+login 10 f7da56901e
+  loginok
+query money
+  money 10567 // money player has
+query shares
+  shares 0:10 1:256 2:0 3:100 4:500 // shares player has
+query prices
+  prices 0:70 1:20 2:30 3:50 4:25 // current prices
+sell 0 10 // sell 10 shares of company no.0
+  sellok 0 10
+  sold 0 10
+sell 3 100 // sell 100 shares of company no.3
+  sellok 3 100
+  sold 3 100
+query money
+  money 11767
+query prices 2
+  prices 2:32
+buy 2 100
+  buyok 2 100
+  bought 2 100
+query money
+  money 11447
+query shares 2
+  shares 2:0
+query shares 
+  shares 0:0 1:256 2:100 3:0 4:500
+bye // end of conversation
+bye
+// client gets disconnected
