@@ -1,6 +1,9 @@
 package gielda;
 
 import gielda.Server.ConnectionHandler;
+import gielda.Tasks;
+import gielda.Tasks.Disconnect;
+import gielda.Tasks.Error;
 
 import java.util.NoSuchElementException;
 import java.util.StringTokenizer;
@@ -12,30 +15,34 @@ public class Interpreter {
 		this.connection = connectionHandler;
 	}
 
-	public int execute(String s) {
+	public void execute(String s) throws Tasks.Disconnect, Tasks.Error {
 		StringTokenizer tokenizer = new StringTokenizer(s);
 		String cmd;
 		try {
 			cmd = tokenizer.nextToken();
 		} catch (NoSuchElementException e) {
-			return 0;
+			throw new Tasks.Error("wrongParameterNumber");
 		}
 		/**
 		 * Commands:
 		 *  c:login (id hash)
-		 *  s:loginok,loginerr
+		 *  s:loginok, loginerr
 		 *  
 		 *  c:query (shares [company]; money; price [company], history (company))
-		 *  s:shares (company_id:amount company_id:amount)/(company_id:amount)
+		 *  s:shares (companyId:amount companyId:amount)/(companyId:amount)
 		 *  s:money (amount_of_money)
-		 *  s:price (company_id:price company_id:price)/(company_id:price)
-		 *  s:history (company_id:t-99,t-98,...,t-1,t)
+		 *  s:price (companyId:price companyId:price)/(companyId:price)
+		 *  s:history (companyId:t-99,t-98,...,t-1,t)
 		 *  
-		 *  c:buy (company_id amount)
-		 *  s:buyok (company_id amount)
+		 *  c:buy (companyId amount price)
+		 *  s:buyok (companyId amount price)
+		 *  	s:buyerr (companyId amount price)
+		 *  s:buydone (companyId amount price)
 		 *  
-		 *  c:sell (company_id amount)
-		 *  s:sellok (company_id amount)
+		 *  c:sell (companyId amount price)
+		 *  s:sellok (companyId amount price)
+		 *  	s:sellerr (companyId amount price)
+		 *  s:selldone (companyId amount price)
 		 *  
 		 *  c:bye
 		 *  s:bye
@@ -44,52 +51,77 @@ public class Interpreter {
 		 */
 		try {
 			if (cmd.equals("login")) {
-				int id = new Integer(tokenizer.nextToken()); // client id
+				
+				int playerId = new Integer(tokenizer.nextToken()); // client id
 				String hash = tokenizer.nextToken();
 
-				if (connection.getServer().blc.authorizePlayer(id, hash)) {
-					connection.playerId = id;
+				if (connection.getServer().blc.loginPlayer(playerId, hash)) {
+					connection.setPlayerId(playerId);
 					connection.send("loginok");
 				} else {
 					connection.send("loginerr");
 				}
+				
 			} else if (cmd.equals("query")) {
+				
 				String what = tokenizer.nextToken();
 				String response = connection.getServer().blc.query(what);
 				connection.send(response);
+				
 			} else if (cmd.equals("buy")) {
-				int company_id = new Integer(tokenizer.nextToken());
-				int amount = new Integer(tokenizer.nextToken());
-				if(connection.getServer().blc.buy(connection.playerId, company_id, amount)) {
-					connection.send("buyok "+company_id+" "+amount);
-				} else {
-					connection.send("buyerr "+company_id+" "+amount);
+				
+				int companyId = new Integer(tokenizer.nextToken());
+				int amount 	  = new Integer(tokenizer.nextToken());
+				int price     = new Integer(tokenizer.nextToken());
+				
+				try {
+					Order o = new Order(connection.id, companyId, amount, price);
+					int buyResult = connection.getServer().blc.buy(o);
+					if(buyResult != -1) {
+						connection.send("buyok "+o);
+						if(buyResult == 0)
+							connection.send("buydone "+o);
+					} else {
+						connection.send("buyerr "+o);
+					}
+				} catch (InvalidDataException e) {
+					connection.send("buyerr "+companyId+" "+amount+" "+price);
+				} catch (PlayerNotLoggedException e) {
+					throw new Error("notLogged");
 				}
+				
 			} else if (cmd.equals("sell")) {
-				int company_id = new Integer(tokenizer.nextToken());
-				int amount = new Integer(tokenizer.nextToken());
-				if(connection.getServer().blc.sell(connection.playerId, company_id, amount)) {
-					connection.send("sellok "+company_id+" "+amount);
-				} else {
-					connection.send("sellerr "+company_id+" "+amount);
+				
+				int companyId = new Integer(tokenizer.nextToken());
+				int amount    = new Integer(tokenizer.nextToken());
+				int price     = new Integer(tokenizer.nextToken());
+				
+				try {
+					Order o = new Order(connection.id, companyId, amount, price);
+					int sellResult = connection.getServer().blc.sell(o); 
+					if(sellResult != -1) {
+						connection.send("sellok "+o);
+						if(sellResult == 0)
+							connection.send("selldone "+o);
+					} else {
+						connection.send("sellerr "+o);
+					}
+				} catch (InvalidDataException e) {
+					connection.send("sellerr "+companyId+" "+amount+" "+price);
+				} catch (PlayerNotLoggedException e) {
+					throw new Error("notLogged");
 				}
+				
 			} else if (cmd.equals("bye")) {
+				
 				connection.send("bye");
-				return 1; // disconnect
+				throw new Tasks.Disconnect(); // disconnect
+				
 			} else {
-				error("wrong command");
-				return -1;
+				throw new Tasks.Error("wrongCommand");
 			}
 		} catch (NoSuchElementException e) {
-			error("wrong parameter number");
-			return -1;
+			throw new Tasks.Error("wrongParameterNumber");
 		}
-		return 0;	
-	}
-	
-	private void error(String msg) {
-		connection.send("error");
-		connection.error(msg);
-		
 	}
 }

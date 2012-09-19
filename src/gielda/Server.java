@@ -1,28 +1,40 @@
 package gielda;
 
+import gielda.Tasks.Error;
+import gielda.Tasks.Disconnect;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 public class Server {
+	/** SINGLETON **/
+	private static Server s;
+	public static synchronized Server getServer() {
+		if(s==null)
+			s = new Server();
+		return s;
+	}
+	
+	/***********/
 	private ServerSocket socket;
-	private List<ConnectionHandler> connections;
+	private Map<Integer, ConnectionHandler> connections;
 	private int nextId;
 	
 	public BusinessLogicController blc;
 	
+	/** ConnectionHandler **/
 	public class ConnectionHandler extends Thread {
-		private Socket socket;
-		public  BufferedReader reader;
-		public  PrintWriter writer;
-		private int id;
-		public int playerId;
-		private Interpreter interpreter;
+		private Socket			socket;
+		private Interpreter 	interpreter;
+		public  BufferedReader 	reader;
+		public  PrintWriter 	writer;
+		public  int 			id;
+		
 		
 		private ConnectionHandler(Socket socket, int id) {
 			this.socket = socket;
@@ -37,16 +49,18 @@ public class Server {
 			}
 			this.interpreter = new Interpreter(this);
 		}
-		
+	
 		public void run() {
 			String buffer;
 			try {
 				while ((buffer = this.reader.readLine()) != null) {
 					System.out.println(this+": "+buffer);
 					
-					int executionResult = this.interpreter.execute(buffer);
-					
-					if(executionResult == 1) {
+					try {
+						this.interpreter.execute(buffer);
+					} catch (Tasks.Error e) {
+						this.error(e.getMsg());
+					} catch(Tasks.Disconnect e) {
 						this.socket.close();
 						break;
 					}
@@ -55,7 +69,7 @@ public class Server {
 				e.printStackTrace();
 			} finally {
 				synchronized(Server.this.connections) {
-					Server.this.connections.remove(this);
+					Server.this.connections.remove(this.id);
 				}
 				System.out.println("Server: "+this+" disconnected");
 			}
@@ -63,10 +77,11 @@ public class Server {
 		
 		public void error(String msg) {
 			System.err.println(this+": "+msg);
+			this.send("error "+msg);
 		}
 		
 		public String toString() {
-			return "Client (" + this.id + ")";
+			return "Client(" + this.id + ")";
 		}
 
 		public Server getServer() {
@@ -76,9 +91,25 @@ public class Server {
 		public void send(String string) {
 			this.writer.println(string);
 		}
+
+		public void setPlayerId(int playerId) {
+			this.getServer().changeId(this.id, playerId);
+			this.id = playerId;
+		}
+	} /** end of ConnectionHandler **/
+	
+	public void send(int playerId, String msg) {
+		this.connections.get(playerId).send(msg);
+	}
+
+	public void changeId(int oldId, int newId) {
+		synchronized (this.connections) {
+			this.connections.put(newId, connections.remove(oldId));	
+		}
 	}
 	
-	public Server(int port) {
+	public Server() {
+		int port = 9876;
 		try {
 			this.socket = new ServerSocket(port);
 			System.out.println("Server: successfully opened server socket on port: "+port);
@@ -87,7 +118,7 @@ public class Server {
 			System.exit(-1);
 		}
 		
-		this.connections = new ArrayList<ConnectionHandler>();
+		this.connections = new HashMap<Integer, ConnectionHandler>();
 		this.blc = new BusinessLogicController();
 	}
 	
@@ -95,9 +126,9 @@ public class Server {
 		while(true) {
 			ConnectionHandler c;
 			try {
-				c = new ConnectionHandler(this.socket.accept(), ++nextId);
+				c = new ConnectionHandler(this.socket.accept(), --nextId);
 				synchronized (this.connections) {
-					this.connections.add(c);	
+					this.connections.put(nextId, c);	
 				}
 				c.start();
 				System.out.println("Server: new "+ c +" connected");
@@ -107,13 +138,8 @@ public class Server {
 		}
 	}
 	
-	/**
-	 * public static void main
-	 * 
-	 */
-	
+	/** Main **/
 	public static void main(String [] args) {		
-		Server server = new Server(9876);
-		server.listen();
+		Server.getServer().listen();
 	}
 }
